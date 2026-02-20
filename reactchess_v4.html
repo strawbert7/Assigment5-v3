@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess — Enhanced Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <style>
+        /* ── CHANGE 4: Luxurious dark theme with CSS variables ── */
+        :root {
+            --gold: #c9a84c;
+            --gold-light: #e8c97a;
+            --dark: #0e0d0b;
+            --panel: #1a1812;
+            --border: #3a3020;
+            --sq-light: #f0d9a8;
+            --sq-dark: #8b6340;
+            --sq-selected: rgba(255, 220, 50, 0.55);
+            --sq-option: rgba(0,0,0,0.22);
+            --sq-lastmove: rgba(180, 230, 90, 0.35);
+            --sq-check: rgba(220, 30, 30, 0.5);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            background: var(--dark);
+            font-family: 'Crimson Text', serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* ── CHANGE 4: Animated noise/grain background ── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                radial-gradient(ellipse at 20% 20%, rgba(201,168,76,0.08) 0%, transparent 55%),
+                radial-gradient(ellipse at 80% 80%, rgba(100,60,20,0.12) 0%, transparent 55%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        #root { position: relative; z-index: 1; }
+
+        /* ── CHANGE 7: Smooth square transition animations ── */
+        .chess-square {
+            width: 68px;
+            height: 68px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 42px;
+            cursor: pointer;
+            position: relative;
+            transition: filter 0.15s ease;
+            user-select: none;
+        }
+        .chess-square:hover { filter: brightness(1.12); }
+
+        .chess-square .piece {
+            position: relative;
+            z-index: 10;
+            transition: transform 0.12s cubic-bezier(.34,1.56,.64,1);
+            line-height: 1;
+            text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+        }
+        .chess-square:hover .piece { transform: scale(1.15) translateY(-2px); }
+
+        /* ── CHANGE 7: Legal move dot ── */
+        .move-dot {
+            position: absolute;
+            width: 26%;
+            height: 26%;
+            background: rgba(0,0,0,0.28);
+            border-radius: 50%;
+            z-index: 5;
+            animation: dotPop 0.18s cubic-bezier(.34,1.56,.64,1);
+        }
+        .move-dot.capture-ring {
+            width: 86%;
+            height: 86%;
+            background: transparent;
+            border-radius: 50%;
+            border: 6px solid rgba(0,0,0,0.22);
+        }
+        @keyframes dotPop {
+            from { transform: scale(0); opacity: 0; }
+            to   { transform: scale(1); opacity: 1; }
+        }
+
+        /* ── CHANGE 1: Explosion overlay ── */
+        .explosion-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(circle, #ff8c00 0%, #ff3300 40%, #1a0000 100%);
+            animation: explodeFade 0.7s ease-out forwards;
+            pointer-events: none;
+        }
+        .explosion-overlay .boom-text {
+            font-family: 'Cinzel', serif;
+            font-size: 6rem;
+            font-weight: 900;
+            color: #fff;
+            text-shadow: 0 0 30px #ff8c00, 0 0 60px #ff0000;
+            animation: boomPop 0.7s ease-out forwards;
+        }
+        .explosion-particle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: particleFly 0.7s ease-out forwards;
+        }
+        @keyframes explodeFade {
+            0%   { opacity: 0; }
+            15%  { opacity: 1; }
+            60%  { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        @keyframes boomPop {
+            0%   { transform: scale(0.3) rotate(-8deg); opacity: 0; }
+            30%  { transform: scale(1.3) rotate(4deg); opacity: 1; }
+            70%  { transform: scale(1.05) rotate(-2deg); opacity: 1; }
+            100% { transform: scale(1.2) rotate(0deg); opacity: 0; }
+        }
+        @keyframes particleFly {
+            0%   { transform: translate(0,0) scale(1); opacity: 1; }
+            100% { transform: translate(var(--tx), var(--ty)) scale(0.1); opacity: 0; }
+        }
+
+        /* ── CHANGE 3: Move history panel ── */
+        .move-history {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            height: 340px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--gold) transparent;
+            font-family: 'Crimson Text', serif;
+            font-size: 0.95rem;
+        }
+        .move-history::-webkit-scrollbar { width: 4px; }
+        .move-history::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 4px; }
+
+        /* ── CHANGE 2: Captured pieces panel ── */
+        .captured-piece { font-size: 1.2rem; opacity: 0.9; }
+
+        /* ── CHANGE 5: Board coordinate labels ── */
+        .coord-label {
+            font-family: 'Cinzel', serif;
+            font-size: 0.55rem;
+            font-weight: 700;
+            position: absolute;
+            color: rgba(0,0,0,0.45);
+            line-height: 1;
+            pointer-events: none;
+            z-index: 20;
+        }
+        .coord-label.light { color: rgba(139,99,64,0.7); }
+
+        /* ── CHANGE 8: Promotion modal ── */
+        .promo-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            z-index: 8888;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        .promo-box {
+            background: var(--panel);
+            border: 2px solid var(--gold);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 0 60px rgba(201,168,76,0.3);
+        }
+        .promo-piece-btn {
+            font-size: 3rem;
+            background: none;
+            border: 2px solid transparent;
+            border-radius: 10px;
+            cursor: pointer;
+            padding: 8px 16px;
+            transition: all 0.15s;
+            line-height: 1;
+        }
+        .promo-piece-btn:hover {
+            border-color: var(--gold);
+            background: rgba(201,168,76,0.15);
+            transform: scale(1.15);
+        }
+
+        /* ── CHANGE 9: Flip board button / timer ── */
+        .control-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--gold);
+            font-family: 'Cinzel', serif;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            padding: 7px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .control-btn:hover {
+            border-color: var(--gold);
+            background: rgba(201,168,76,0.1);
+        }
+        .control-btn.danger { color: #e05555; border-color: #5a2020; }
+        .control-btn.danger:hover { background: rgba(220,50,50,0.12); border-color: #e05555; }
+
+        /* ── CHANGE 6: Status bar check pulse ── */
+        .status-bar {
+            font-family: 'Cinzel', serif;
+            font-size: 0.9rem;
+            letter-spacing: 0.08em;
+            color: #b0a070;
+            text-align: center;
+        }
+        .status-bar.check { color: #ff5555; animation: checkPulse 0.6s ease-in-out infinite alternate; }
+        .status-bar.checkmate { color: var(--gold); font-size: 1.1rem; }
+        @keyframes checkPulse {
+            from { text-shadow: 0 0 6px rgba(255,60,60,0.5); }
+            to   { text-shadow: 0 0 20px rgba(255,60,60,1), 0 0 40px rgba(255,0,0,0.5); }
+        }
+
+        /* ── CHANGE 10: Winner banner ── */
+        .winner-banner {
+            position: fixed;
+            inset: 0;
+            z-index: 7777;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(6px);
+            animation: bannerFadeIn 0.5s ease;
+        }
+        @keyframes bannerFadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        .winner-card {
+            background: linear-gradient(135deg, #1a1812, #2a2418);
+            border: 2px solid var(--gold);
+            border-radius: 16px;
+            padding: 48px 64px;
+            text-align: center;
+            box-shadow: 0 0 80px rgba(201,168,76,0.4);
+        }
+        .winner-card h2 {
+            font-family: 'Cinzel', serif;
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: var(--gold-light);
+            text-shadow: 0 0 30px rgba(201,168,76,0.6);
+            margin-bottom: 12px;
+        }
+        .winner-card p {
+            color: #a09060;
+            font-size: 1.1rem;
+            margin-bottom: 28px;
+        }
+
+        /* Board border */
+        .board-wrap {
+            border: 3px solid var(--border);
+            box-shadow: 0 0 0 1px #2a2010, 0 20px 60px rgba(0,0,0,0.8), 0 0 40px rgba(201,168,76,0.07);
+            border-radius: 2px;
+        }
+
+        /* ── CHANGE 9: Timer display ── */
+        .timer-display {
+            font-family: 'Cinzel', serif;
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            min-width: 110px;
+            text-align: center;
+        }
+        .timer-display.active { color: var(--gold); border-color: var(--gold-light); }
+        .timer-display.inactive { color: #4a4030; }
+        .timer-display.low { color: #e05555; animation: checkPulse 0.5s infinite alternate; }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ── Particle colours for explosion ── */
+const PARTICLE_COLORS = ['#ff8c00','#ff4400','#ffcc00','#ff2200','#ffffff','#ff6600'];
+
+/* ── Format seconds as mm:ss ── */
+function formatTime(s) {
+    const m = Math.floor(s / 60).toString().padStart(2,'0');
+    const sec = (s % 60).toString().padStart(2,'0');
+    return `${m}:${sec}`;
+}
+
+/* ── Generate explosion particles ── */
+function ExplosionOverlay() {
+    const particles = Array.from({length: 28}, (_,i) => {
+        const angle = (i / 28) * 2 * Math.PI + (Math.random() - 0.5) * 0.5;
+        const dist = 120 + Math.random() * 200;
+        const tx = Math.cos(angle) * dist;
+        const ty = Math.sin(angle) * dist;
+        const color = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)];
+        const size = 8 + Math.random() * 14;
+        return { tx, ty, color, size, delay: Math.random() * 0.1 };
+    });
+
+    return (
+        <div className="explosion-overlay">
+            {particles.map((p, i) => (
+                <div key={i} className="explosion-particle" style={{
+                    '--tx': `${p.tx}px`,
+                    '--ty': `${p.ty}px`,
+                    background: p.color,
+                    width: p.size, height: p.size,
+                    animationDelay: `${p.delay}s`,
+                    boxShadow: `0 0 ${p.size}px ${p.color}`
+                }} />
+            ))}
+            <div className="boom-text">💥</div>
+        </div>
+    );
+}
+
+/* ── Promotion modal (Change 8) ── */
+function PromotionModal({ color, onSelect }) {
+    const pieces = color === 'w'
+        ? [['q','♕'],['r','♖'],['b','♗'],['n','♘']]
+        : [['q','♛'],['r','♜'],['b','♝'],['n','♞']];
+    return (
+        <div className="promo-overlay">
+            <div className="promo-box">
+                <div style={{fontFamily:'Cinzel,serif', color:'#c9a84c', fontSize:'0.85rem', letterSpacing:'0.1em'}}>
+                    PROMOTE PAWN
+                </div>
+                <div style={{display:'flex', gap:'8px'}}>
+                    {pieces.map(([type, sym]) => (
+                        <button key={type} className="promo-piece-btn" onClick={() => onSelect(type)}>
+                            <span style={{color: color==='w'?'#f0d9a8':'#2a1a0a', textShadow:'0 2px 8px rgba(0,0,0,0.8)'}}>
+                                {sym}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ChessApp() {
+    const [game, setGame]                   = useState(new Chess());
+    const [selectedSquare, setSelectedSquare] = useState(null);
+    const [optionSquares, setOptionSquares] = useState([]);
+    const [lastMove, setLastMove]           = useState(null);        // Change 5
+    const [capturedW, setCapturedW]         = useState([]);          // Change 2
+    const [capturedB, setCapturedB]         = useState([]);          // Change 2
+    const [moveHistory, setMoveHistory]     = useState([]);          // Change 3
+    const [showExplosion, setShowExplosion] = useState(false);       // Change 1
+    const [flipped, setFlipped]             = useState(false);       // Change 9
+    const [promoInfo, setPromoInfo]         = useState(null);        // Change 8
+    const [timers, setTimers]               = useState({w:600,b:600});// Change 9
+    const [timerActive, setTimerActive]     = useState(false);
+    const [gameOver, setGameOver]           = useState(false);       // Change 10
+    const timerRef = useRef(null);
+    const historyEndRef = useRef(null);
+
+    /* ── Piece symbol map ── */
+    const pieceSymbols = {
+        'p':'♟','r':'♜','n':'♞','b':'♝','q':'♛','k':'♚',
+        'P':'♙','R':'♖','N':'♘','B':'♗','Q':'♕','K':'♔'
+    };
+    const captureSymbols = {
+        'p':'♟','r':'♜','n':'♞','b':'♝','q':'♛',
+        'P':'♙','R':'♖','N':'♘','B':'♗','Q':'♕'
+    };
+
+    /* ── CHANGE 9: Countdown timer ── */
+    useEffect(() => {
+        if (timerActive && !gameOver) {
+            timerRef.current = setInterval(() => {
+                setTimers(prev => {
+                    const turn = game.turn();
+                    const newVal = Math.max(0, prev[turn] - 1);
+                    const updated = {...prev, [turn]: newVal};
+                    if (newVal === 0) {
+                        setGameOver({ winner: turn === 'w' ? 'Black' : 'White', reason: 'on time' });
+                        setTimerActive(false);
+                    }
+                    return updated;
+                });
+            }, 1000);
+        }
+        return () => clearInterval(timerRef.current);
+    }, [timerActive, game, gameOver]);
+
+    /* ── Auto-scroll move history ── */
+    useEffect(() => {
+        historyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [moveHistory]);
+
+    function getSquareLabel(i, j) {
+        const file = String.fromCharCode(97 + (flipped ? 7 - j : j));
+        const rank = flipped ? i + 1 : 8 - i;
+        return file + rank;
+    }
+
+    /* ── CHANGE 8: Handle promotion selection ── */
+    function applyPromotion(promoType) {
+        const { from, to } = promoInfo;
+        const move = game.move({ from, to, promotion: promoType });
+        if (move) finaliseMove(move);
+        setPromoInfo(null);
+    }
+
+    function handleSquareClick(square) {
+        if (promoInfo || gameOver) return;
+
+        if (selectedSquare) {
+            // Check if this is a pawn promotion move
+            const piece = game.get(selectedSquare);
+            const isPromotion = piece && piece.type === 'p' && (
+                (piece.color === 'w' && square[1] === '8') ||
+                (piece.color === 'b' && square[1] === '1')
+            );
+
+            if (isPromotion && optionSquares.includes(square)) {
+                // Show promotion modal instead of auto-queening
+                setPromoInfo({ from: selectedSquare, to: square, color: piece.color });
+                setSelectedSquare(null);
+                setOptionSquares([]);
+                return;
+            }
+
+            const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+            if (move) {
+                finaliseMove(move);
+                return;
+            }
+        }
+
+        const piece = game.get(square);
+        if (piece && piece.color === game.turn()) {
+            setSelectedSquare(square);
+            const moves = game.moves({ square, verbose: true });
+            setOptionSquares(moves.map(m => m.to));
+        } else {
+            setSelectedSquare(null);
+            setOptionSquares([]);
+        }
+    }
+
+    function finaliseMove(move) {
+        /* ── CHANGE 1: Explosion on capture ── */
+        if (move.captured) {
+            setShowExplosion(true);
+            setTimeout(() => setShowExplosion(false), 700);
+
+            /* ── CHANGE 2: Track captured pieces ── */
+            const capSym = move.captured.toLowerCase();
+            const capColor = move.color === 'w' ? 'b' : 'w';
+            if (capColor === 'b') {
+                setCapturedB(prev => [...prev, capSym]);
+            } else {
+                setCapturedW(prev => [...prev, capSym]);
+            }
+        }
+
+        /* ── CHANGE 5: Track last move for highlight ── */
+        setLastMove({ from: move.from, to: move.to });
+
+        /* ── CHANGE 3: Move history (SAN pairs) ── */
+        setMoveHistory(prev => {
+            const newHistory = [...prev];
+            if (move.color === 'w') {
+                newHistory.push({ white: move.san, black: null, num: newHistory.length + 1 });
+            } else {
+                const last = newHistory[newHistory.length - 1];
+                if (last && last.black === null) {
+                    newHistory[newHistory.length - 1] = { ...last, black: move.san };
+                }
+            }
+            return newHistory;
+        });
+
+        const newGame = new Chess(game.fen());
+        setGame(newGame);
+        setSelectedSquare(null);
+        setOptionSquares([]);
+        if (!timerActive) setTimerActive(true);
+
+        /* ── CHANGE 10: Check game over ── */
+        if (newGame.in_checkmate()) {
+            const winner = newGame.turn() === 'w' ? 'Black' : 'White';
+            setTimeout(() => setGameOver({ winner, reason: 'by checkmate' }), 720);
+            setTimerActive(false);
+        } else if (newGame.in_draw()) {
+            setTimeout(() => setGameOver({ winner: null, reason: 'Draw' }), 720);
+            setTimerActive(false);
+        }
+    }
+
+    const resetGame = () => {
+        clearInterval(timerRef.current);
+        setGame(new Chess());
+        setSelectedSquare(null);
+        setOptionSquares([]);
+        setLastMove(null);
+        setCapturedW([]);
+        setCapturedB([]);
+        setMoveHistory([]);
+        setShowExplosion(false);
+        setFlipped(false);
+        setPromoInfo(null);
+        setTimers({w:600, b:600});
+        setTimerActive(false);
+        setGameOver(false);
+    };
+
+    const statusText = () => {
+        if (game.in_checkmate()) return `Checkmate — ${game.turn() === 'w' ? 'Black' : 'White'} wins`;
+        if (game.in_draw())      return 'Draw';
+        if (game.in_check())     return `${game.turn() === 'w' ? 'White' : 'Black'} is in CHECK`;
+        return `${game.turn() === 'w' ? 'White' : 'Black'} to move`;
+    };
+
+    const statusClass = game.in_check() ? 'status-bar check' :
+                        (game.in_checkmate() || game.in_draw()) ? 'status-bar checkmate' : 'status-bar';
+
+    const board = game.board();
+    const displayBoard = flipped
+        ? [...board].reverse().map(row => [...row].reverse())
+        : board;
+
+    /* ── CHANGE 2: Piece value for material score ── */
+    const pieceVal = { p:1, n:3, b:3, r:5, q:9 };
+    const materialW = capturedB.reduce((s,p) => s + (pieceVal[p]||0), 0);
+    const materialB = capturedW.reduce((s,p) => s + (pieceVal[p]||0), 0);
+    const materialDiff = materialW - materialB;
+
+    const CapturedRow = ({ pieces, label, score }) => (
+        <div style={{display:'flex', alignItems:'center', gap:'6px', minHeight:'28px', flexWrap:'wrap'}}>
+            <span style={{fontFamily:'Cinzel,serif', fontSize:'0.6rem', color:'#6a5a30', letterSpacing:'0.05em', minWidth:'38px'}}>{label}</span>
+            {pieces.map((p,i) => (
+                <span key={i} className="captured-piece">{captureSymbols[p]||captureSymbols[p.toUpperCase()]||'?'}</span>
+            ))}
+            {score > 0 && <span style={{marginLeft:'auto', color:'#c9a84c', fontFamily:'Cinzel,serif', fontSize:'0.7rem'}}>+{score}</span>}
+        </div>
+    );
+
+    return (
+        <>
+            {/* ── CHANGE 1: Explosion overlay ── */}
+            {showExplosion && <ExplosionOverlay />}
+
+            {/* ── CHANGE 8: Promotion modal ── */}
+            {promoInfo && <PromotionModal color={promoInfo.color} onSelect={applyPromotion} />}
+
+            {/* ── CHANGE 10: Winner banner ── */}
+            {gameOver && (
+                <div className="winner-banner">
+                    <div className="winner-card">
+                        <div style={{fontSize:'3rem', marginBottom:'8px'}}>
+                            {gameOver.winner ? '♔' : '⚖️'}
+                        </div>
+                        <h2>{gameOver.winner ? `${gameOver.winner} Wins` : 'Draw'}</h2>
+                        <p style={{fontFamily:'Crimson Text,serif', color:'#8a7040'}}>
+                            {gameOver.winner ? gameOver.reason : gameOver.reason}
+                        </p>
+                        <button className="control-btn" onClick={resetGame}
+                            style={{fontSize:'0.85rem', padding:'10px 28px', borderColor:'#c9a84c'}}>
+                            Play Again
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            <div style={{display:'flex', gap:'28px', alignItems:'flex-start', padding:'20px'}}>
+
+                {/* ── CHANGE 3: Move history sidebar ── */}
+                <div style={{width:'160px', display:'flex', flexDirection:'column', gap:'10px'}}>
+                    <div style={{fontFamily:'Cinzel,serif', fontSize:'0.7rem', color:'#6a5a30', letterSpacing:'0.12em', textAlign:'center'}}>
+                        MOVE HISTORY
+                    </div>
+                    <div className="move-history">
+                        {moveHistory.map((entry, idx) => (
+                            <div key={idx} style={{
+                                display:'grid', gridTemplateColumns:'28px 1fr 1fr',
+                                gap:'2px', padding:'2px 0',
+                                borderBottom: '1px solid rgba(58,48,32,0.4)',
+                                fontSize: '0.88rem'
+                            }}>
+                                <span style={{color:'#5a4a20', fontFamily:'Cinzel,serif', fontSize:'0.72rem'}}>
+                                    {entry.num}.
+                                </span>
+                                <span style={{color:'#d0c090'}}>{entry.white}</span>
+                                <span style={{color:'#8a7a50'}}>{entry.black || ''}</span>
+                            </div>
+                        ))}
+                        <div ref={historyEndRef} />
+                    </div>
+                    {/* Controls */}
+                    <button className="control-btn" onClick={() => setFlipped(f => !f)}>
+                        ⇅ FLIP BOARD
+                    </button>
+                    <button className="control-btn danger" onClick={resetGame}>
+                        ↺ NEW GAME
+                    </button>
+                </div>
+
+                {/* ── Main board column ── */}
+                <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'12px'}}>
+
+                    {/* ── CHANGE 9: Black timer (top) ── */}
+                    <div style={{display:'flex', alignItems:'center', gap:'12px', width:'100%'}}>
+                        <div className={`timer-display ${
+                            game.turn()==='b' && timerActive && !gameOver ? 'active' :
+                            timers.b <= 30 ? 'low' : 'inactive'
+                        }`}>
+                            {formatTime(flipped ? timers.w : timers.b)}
+                        </div>
+                        <div style={{flex:1}}>
+                            {/* ── CHANGE 2: Black captured pieces (White captured from black) ── */}
+                            <CapturedRow
+                                pieces={capturedB.map(p=>p)}
+                                label={flipped ? 'WHITE' : 'BLACK'}
+                                score={materialB > 0 ? materialB : 0}
+                            />
+                        </div>
+                    </div>
+
+                    {/* ── Title & status ── */}
+                    <div style={{textAlign:'center'}}>
+                        <h1 style={{fontFamily:'Cinzel,serif', fontSize:'1.4rem', fontWeight:900,
+                            color:'#c9a84c', letterSpacing:'0.15em', marginBottom:'4px'}}>
+                            ♜ CHESS ♖
+                        </h1>
+                        <div className={statusClass}>{statusText()}</div>
+                    </div>
+
+                    {/* ── BOARD ── */}
+                    <div style={{position:'relative'}}>
+                        {/* ── CHANGE 5: File labels (a–h) at bottom ── */}
+                        <div style={{display:'flex', position:'absolute', bottom:'-18px', left:'0', width:'100%'}}>
+                            {(flipped ? ['h','g','f','e','d','c','b','a'] : ['a','b','c','d','e','f','g','h']).map(f => (
+                                <div key={f} style={{width:'68px', textAlign:'center',
+                                    fontFamily:'Cinzel,serif', fontSize:'0.6rem', color:'#5a4a20'}}>
+                                    {f}
+                                </div>
+                            ))}
+                        </div>
+                        {/* ── CHANGE 5: Rank labels (1–8) on left ── */}
+                        <div style={{display:'flex', flexDirection:'column', position:'absolute', left:'-18px', top:'0', height:'100%'}}>
+                            {(flipped ? [1,2,3,4,5,6,7,8] : [8,7,6,5,4,3,2,1]).map(r => (
+                                <div key={r} style={{height:'68px', display:'flex', alignItems:'center',
+                                    fontFamily:'Cinzel,serif', fontSize:'0.6rem', color:'#5a4a20'}}>
+                                    {r}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="board-wrap">
+                            <div style={{display:'grid', gridTemplateColumns:'repeat(8, 68px)'}}>
+                                {displayBoard.map((row, i) =>
+                                    row.map((sq, j) => {
+                                        const squareLabel = getSquareLabel(i, j);
+                                        const isDark = (i + j) % 2 === 1;
+                                        const isSelected = selectedSquare === squareLabel;
+                                        const isOption = optionSquares.includes(squareLabel);
+                                        const isLastMove = lastMove && (squareLabel === lastMove.from || squareLabel === lastMove.to);
+                                        const isCheck = game.in_check() && sq && sq.type === 'k' && sq.color === game.turn();
+                                        const hasEnemy = isOption && sq && sq.color !== game.turn();
+
+                                        let bg = isDark ? 'var(--sq-dark)' : 'var(--sq-light)';
+                                        if (isLastMove) bg = isDark ? '#7a9a38' : '#afd050';
+                                        if (isSelected) bg = 'var(--sq-selected)';
+                                        if (isCheck)    bg = 'var(--sq-check)';
+
+                                        return (
+                                            <div
+                                                key={squareLabel}
+                                                className="chess-square"
+                                                style={{background: bg}}
+                                                onClick={() => handleSquareClick(squareLabel)}
+                                            >
+                                                {/* ── CHANGE 7: Move dot / capture ring ── */}
+                                                {isOption && (
+                                                    <div className={`move-dot ${hasEnemy ? 'capture-ring' : ''}`} />
+                                                )}
+                                                {sq && (
+                                                    <span className="piece" style={{
+                                                        color: sq.color === 'w' ? '#f5e8c0' : '#1a1008',
+                                                        fontSize: sq.type === 'k' ? '46px' : '42px'
+                                                    }}>
+                                                        {pieceSymbols[sq.color === 'w' ? sq.type.toUpperCase() : sq.type]}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── CHANGE 9: White timer (bottom) ── */}
+                    <div style={{display:'flex', alignItems:'center', gap:'12px', width:'100%', marginTop:'24px'}}>
+                        <div className={`timer-display ${
+                            game.turn()==='w' && timerActive && !gameOver ? 'active' :
+                            timers.w <= 30 ? 'low' : 'inactive'
+                        }`}>
+                            {formatTime(flipped ? timers.b : timers.w)}
+                        </div>
+                        <div style={{flex:1}}>
+                            {/* ── CHANGE 2: White captured pieces ── */}
+                            <CapturedRow
+                                pieces={capturedW.map(p=>p.toUpperCase())}
+                                label={flipped ? 'BLACK' : 'WHITE'}
+                                score={materialW > 0 ? materialW : 0}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </>
+    );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<ChessApp />);
+</script>
+</body>
+</html>
